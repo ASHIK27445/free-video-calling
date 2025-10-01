@@ -6,7 +6,7 @@
     <title>FreeVideoCall - Simple P2P Video Calling</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        /* Your existing CSS remains the same */
+        /* Your existing CSS styles */
         * {
             margin: 0;
             padding: 0;
@@ -502,7 +502,7 @@
             
             <div class="connection-status">
                 <div class="status-dot" id="connectionStatusDot"></div>
-                <span id="connectionStatusText">Connecting to signaling server...</span>
+                <span id="connectionStatusText">Ready to connect</span>
             </div>
             
             <div class="card" style="max-width: 800px; margin-top: 20px;">
@@ -534,569 +534,588 @@
         </div>
     </div>
 
-<script>
-    // DOM Elements
-    const setupInterface = document.getElementById('setupInterface');
-    const callInterface = document.getElementById('callInterface');
-    const roomIdInput = document.getElementById('roomId');
-    const createRoomBtn = document.getElementById('createRoomBtn');
-    const joinRoomBtn = document.getElementById('joinRoomBtn');
-    const localVideo = document.getElementById('localVideo');
-    const remoteVideo = document.getElementById('remoteVideo');
-    const toggleVideoBtn = document.getElementById('toggleVideo'); // Changed name
-    const toggleAudioBtn = document.getElementById('toggleAudio'); // Changed name
-    const screenShareBtn = document.getElementById('screenShare');
-    const endCallBtn = document.getElementById('endCallBtn');
-    const connectionStatusDot = document.getElementById('connectionStatusDot');
-    const connectionStatusText = document.getElementById('connectionStatusText');
-    const localVideoIndicator = document.getElementById('localVideoIndicator');
-    const remoteVideoIndicator = document.getElementById('remoteVideoIndicator');
-    const remoteStatusText = document.getElementById('remoteStatusText');
-    const toast = document.getElementById('toast');
-    const toastMessage = document.getElementById('toastMessage');
-    const currentRoomId = document.getElementById('currentRoomId');
-    const participantsList = document.getElementById('participantsList');
-    const copyRoomIdBtn = document.getElementById('copyRoomIdBtn');
+    <script>
+        // DOM Elements
+        const setupInterface = document.getElementById('setupInterface');
+        const callInterface = document.getElementById('callInterface');
+        const roomIdInput = document.getElementById('roomId');
+        const createRoomBtn = document.getElementById('createRoomBtn');
+        const joinRoomBtn = document.getElementById('joinRoomBtn');
+        const localVideo = document.getElementById('localVideo');
+        const remoteVideo = document.getElementById('remoteVideo');
+        const toggleVideoBtn = document.getElementById('toggleVideo');
+        const toggleAudioBtn = document.getElementById('toggleAudio');
+        const screenShareBtn = document.getElementById('screenShare');
+        const endCallBtn = document.getElementById('endCallBtn');
+        const connectionStatusDot = document.getElementById('connectionStatusDot');
+        const connectionStatusText = document.getElementById('connectionStatusText');
+        const localVideoIndicator = document.getElementById('localVideoIndicator');
+        const remoteVideoIndicator = document.getElementById('remoteVideoIndicator');
+        const remoteStatusText = document.getElementById('remoteStatusText');
+        const toast = document.getElementById('toast');
+        const toastMessage = document.getElementById('toastMessage');
+        const currentRoomId = document.getElementById('currentRoomId');
+        const participantsList = document.getElementById('participantsList');
+        const copyRoomIdBtn = document.getElementById('copyRoomIdBtn');
 
-    // App State
-    let localStream = null;
-    let remoteStream = null;
-    let peerConnection = null;
-    let isVideoOn = true;
-    let isAudioOn = true;
-    let isScreenSharing = false;
-    let roomId = null;
-    let socket = null;
+        // App State
+        let localStream = null;
+        let remoteStream = null;
+        let peerConnection = null;
+        let isVideoOn = true;
+        let isAudioOn = true;
+        let isScreenSharing = false;
+        let roomId = null;
+        let socket = null;
 
-    // WebRTC Configuration
-    const configuration = {
-        iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' },
-            { urls: 'stun:stun2.l.google.com:19302' },
-            { urls: 'stun:stun3.l.google.com:19302' }
-        ]
-    };
+        // WebRTC Configuration
+        const configuration = {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                { urls: 'stun:stun2.l.google.com:19302' },
+                { urls: 'stun:stun3.l.google.com:19302' }
+            ]
+        };
 
-    // Get backend URL - FIXED with your Railway URL
-    function getBackendUrl() {
-        // Always use your Railway URL for now
-        return 'wss://free-video-calling-production.up.railway.app/ws';
-    }
-
-    // Initialize the application
-    async function init() {
-        try {
-            console.log('🚀 Initializing application...');
-            
-            // Request camera and microphone access first
-            await getLocalStream();
-            
-            // Set up event listeners
-            setupEventListeners();
-            
-            showToast('Application ready. Create or join a room to start calling.');
-        } catch (error) {
-            console.error('Error initializing application:', error);
-            showToast('Error accessing camera/microphone: ' + error.message, true);
+        // ✅ FIXED: Use your actual Railway backend URL
+        function getBackendUrl() {
+            return 'wss://free-video-calling-production.up.railway.app';
         }
-    }
 
-    // Connect to WebSocket signaling server
-    function connectSignalingServer() {
-        return new Promise((resolve, reject) => {
-            const serverUrl = getBackendUrl();
-            console.log('🔗 Connecting to:', serverUrl);
-            
-            socket = new WebSocket(serverUrl);
-            
-            socket.onopen = () => {
-                console.log('✅ Connected to signaling server');
-                updateConnectionStatus('Connected to server', 'success');
-                resolve();
-            };
-            
-            socket.onerror = (error) => {
-                console.error('❌ WebSocket error:', error);
-                showToast('Failed to connect to server', true);
-                reject(new Error('Failed to connect to signaling server'));
-            };
-            
-            socket.onmessage = (event) => {
-                try {
-                    const message = JSON.parse(event.data);
-                    console.log('📨 Received:', message.type);
-                    handleSignalingMessage(message);
-                } catch (error) {
-                    console.error('Error parsing message:', error);
-                }
-            };
-            
-            socket.onclose = () => {
-                console.log('🔌 Disconnected from signaling server');
-                updateConnectionStatus('Disconnected from server', 'error');
-            };
-        });
-    }
-
-    // Handle signaling messages from server
-    function handleSignalingMessage(message) {
-        switch (message.type) {
-            case 'connected':
-                console.log('Connected with client ID:', message.clientId);
-                break;
-            case 'room-created':
-                handleRoomCreated(message);
-                break;
-            case 'room-joined':
-                handleRoomJoined(message);
-                break;
-            case 'user-joined':
-                handleUserJoined(message);
-                break;
-            case 'user-left':
-                handleUserLeft(message);
-                break;
-            case 'offer':
-                handleOffer(message);
-                break;
-            case 'answer':
-                handleAnswer(message);
-                break;
-            case 'ice-candidate':
-                handleIceCandidate(message);
-                break;
-            case 'error':
-                showToast('Error: ' + message.message, true);
-                break;
-        }
-    }
-
-    // Send signaling message to server
-    function sendSignalingMessage(message) {
-        if (socket && socket.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify(message));
-        } else {
-            console.error('WebSocket not connected');
-        }
-    }
-
-    // Get local media stream
-    async function getLocalStream() {
-        try {
-            localStream = await navigator.mediaDevices.getUserMedia({
-                video: { width: 1280, height: 720 },
-                audio: true
-            });
-            
-            localVideo.srcObject = localStream;
-            console.log('✅ Camera and microphone access granted');
-        } catch (error) {
-            console.error('Error accessing media devices:', error);
-            throw error;
-        }
-    }
-
-    // Create a new room
-    async function createRoom() {
-        try {
-            roomId = roomIdInput.value.trim() || generateRoomId();
-            console.log('Creating room:', roomId);
-            
-            // Connect to signaling server
-            await connectSignalingServer();
-            
-            // Send create room message
-            sendSignalingMessage({
-                type: 'create-room',
-                roomId: roomId
-            });
-            
-        } catch (error) {
-            console.error('Error creating room:', error);
-            showToast('Error creating room: ' + error.message, true);
-        }
-    }
-
-    // Join an existing room
-    async function joinRoom() {
-        try {
-            roomId = roomIdInput.value.trim();
-            
-            if (!roomId) {
-                showToast('Please enter a room ID', true);
-                return;
+        // Initialize the application
+        async function init() {
+            try {
+                console.log('🚀 Initializing application...');
+                
+                // Request camera and microphone access first
+                await getLocalStream();
+                
+                // Set up event listeners
+                setupEventListeners();
+                
+                showToast('Application ready. Create or join a room to start calling.');
+                updateConnectionStatus('Ready to connect', 'success');
+            } catch (error) {
+                console.error('Error initializing application:', error);
+                showToast('Error accessing camera/microphone: ' + error.message, true);
             }
-            
-            console.log('Joining room:', roomId);
-            
-            // Connect to signaling server
-            await connectSignalingServer();
-            
-            // Send join room message
-            sendSignalingMessage({
-                type: 'join-room',
-                roomId: roomId
+        }
+
+        // Connect to WebSocket signaling server
+        function connectSignalingServer() {
+            return new Promise((resolve, reject) => {
+                const serverUrl = getBackendUrl();
+                console.log('🔗 Connecting to:', serverUrl);
+                
+                socket = new WebSocket(serverUrl);
+                
+                socket.onopen = () => {
+                    console.log('✅ Connected to signaling server');
+                    updateConnectionStatus('Connected to server', 'success');
+                    resolve();
+                };
+                
+                socket.onerror = (error) => {
+                    console.error('❌ WebSocket error:', error);
+                    showToast('Failed to connect to server. Please try again.', true);
+                    reject(new Error('Failed to connect to signaling server'));
+                };
+                
+                socket.onmessage = (event) => {
+                    try {
+                        const message = JSON.parse(event.data);
+                        console.log('📨 Received:', message.type);
+                        handleSignalingMessage(message);
+                    } catch (error) {
+                        console.error('Error parsing message:', error);
+                    }
+                };
+                
+                socket.onclose = () => {
+                    console.log('🔌 Disconnected from signaling server');
+                    updateConnectionStatus('Disconnected from server', 'error');
+                };
             });
-            
-        } catch (error) {
-            console.error('Error joining room:', error);
-            showToast('Error joining room: ' + error.message, true);
         }
-    }
 
-    // Handle room created response
-    function handleRoomCreated(message) {
-        console.log('✅ Room created successfully');
-        showCallInterface();
-        currentRoomId.textContent = roomId;
-        showToast(`Room "${roomId}" created. Share the ID with your friend.`);
-        updateConnectionStatus('Waiting for participants...', 'warning');
-    }
-
-    // Handle room joined response
-    function handleRoomJoined(message) {
-        console.log('✅ Joined room successfully');
-        showCallInterface();
-        currentRoomId.textContent = roomId;
-        showToast(`Joined room "${roomId}"`);
-        updateConnectionStatus('Waiting for participants...', 'warning');
-        initializePeerConnection();
-    }
-
-    // Handle user joined room
-    function handleUserJoined(message) {
-        console.log('👤 New participant joined');
-        showToast('New participant joined the room');
-        updateConnectionStatus('Participant joined, establishing connection...', 'warning');
-        
-        if (peerConnection) {
-            createOffer();
-        }
-    }
-
-    // Handle user left room
-    function handleUserLeft(message) {
-        console.log('👤 Participant left');
-        showToast('Participant left the room');
-        
-        if (peerConnection) {
-            peerConnection.close();
-            peerConnection = null;
-        }
-        
-        remoteVideo.srcObject = null;
-        remoteVideoIndicator.classList.remove('active');
-        remoteStatusText.textContent = 'Disconnected';
-        updateConnectionStatus('Participant disconnected', 'error');
-    }
-
-    // Show call interface
-    function showCallInterface() {
-        setupInterface.classList.add('hidden');
-        callInterface.classList.remove('hidden');
-    }
-
-    // Initialize WebRTC peer connection
-    async function initializePeerConnection() {
-        try {
-            if (peerConnection) {
-                peerConnection.close();
+        // Handle signaling messages from server
+        function handleSignalingMessage(message) {
+            switch (message.type) {
+                case 'connected':
+                    console.log('Connected with client ID:', message.clientId);
+                    break;
+                case 'room-created':
+                    handleRoomCreated(message);
+                    break;
+                case 'room-joined':
+                    handleRoomJoined(message);
+                    break;
+                case 'user-joined':
+                    handleUserJoined(message);
+                    break;
+                case 'user-left':
+                    handleUserLeft(message);
+                    break;
+                case 'offer':
+                    handleOffer(message);
+                    break;
+                case 'answer':
+                    handleAnswer(message);
+                    break;
+                case 'ice-candidate':
+                    handleIceCandidate(message);
+                    break;
+                case 'error':
+                    showToast('Error: ' + message.message, true);
+                    break;
             }
-            
-            peerConnection = new RTCPeerConnection(configuration);
-            console.log('✅ Peer connection initialized');
-            
-            // Add local stream tracks
-            localStream.getTracks().forEach(track => {
-                peerConnection.addTrack(track, localStream);
-            });
-            
-            // Set up event handlers
-            peerConnection.onicecandidate = (event) => {
-                if (event.candidate) {
-                    sendSignalingMessage({
-                        type: 'ice-candidate',
-                        candidate: event.candidate,
-                        roomId: roomId
-                    });
-                }
-            };
-            
-            peerConnection.ontrack = (event) => {
-                console.log('✅ Remote stream received');
-                remoteVideo.srcObject = event.streams[0];
-                remoteVideoIndicator.classList.add('active');
-                remoteStatusText.textContent = 'Live';
-                updateConnectionStatus('Connected to peer', 'success');
-                showToast('Connected to remote participant');
-            };
-            
-        } catch (error) {
-            console.error('Error initializing peer connection:', error);
         }
-    }
 
-    // Create WebRTC offer
-    async function createOffer() {
-        try {
-            console.log('📤 Creating WebRTC offer');
-            const offer = await peerConnection.createOffer();
-            await peerConnection.setLocalDescription(offer);
-            
-            sendSignalingMessage({
-                type: 'offer',
-                offer: offer,
-                roomId: roomId
-            });
-        } catch (error) {
-            console.error('Error creating offer:', error);
-        }
-    }
-
-    // Handle incoming offer
-    async function handleOffer(message) {
-        try {
-            console.log('📥 Handling WebRTC offer');
-            if (!peerConnection) {
-                await initializePeerConnection();
+        // Send signaling message to server
+        function sendSignalingMessage(message) {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify(message));
+            } else {
+                console.error('WebSocket not connected');
+                showToast('Connection lost. Please try again.', true);
             }
-            
-            await peerConnection.setRemoteDescription(message.offer);
-            const answer = await peerConnection.createAnswer();
-            await peerConnection.setLocalDescription(answer);
-            
-            sendSignalingMessage({
-                type: 'answer',
-                answer: answer,
-                roomId: roomId
-            });
-        } catch (error) {
-            console.error('Error handling offer:', error);
         }
-    }
 
-    // Handle incoming answer
-    async function handleAnswer(message) {
-        try {
-            console.log('📥 Handling WebRTC answer');
-            await peerConnection.setRemoteDescription(message.answer);
-        } catch (error) {
-            console.error('Error handling answer:', error);
-        }
-    }
-
-    // Handle incoming ICE candidate
-    async function handleIceCandidate(message) {
-        try {
-            if (peerConnection) {
-                await peerConnection.addIceCandidate(message.candidate);
-            }
-        } catch (error) {
-            console.error('Error adding ICE candidate:', error);
-        }
-    }
-
-    // Toggle video stream
-    function toggleVideo() {
-        if (!localStream) return;
-        
-        const videoTrack = localStream.getVideoTracks()[0];
-        if (videoTrack) {
-            videoTrack.enabled = !videoTrack.enabled;
-            isVideoOn = videoTrack.enabled;
-            
-            toggleVideoBtn.innerHTML = isVideoOn ? 
-                '<i class="fas fa-video"></i> Video On' : 
-                '<i class="fas fa-video-slash"></i> Video Off';
-            
-            toggleVideoBtn.classList.toggle('active', isVideoOn);
-            localVideoIndicator.classList.toggle('active', isVideoOn);
-            
-            showToast(`Video ${isVideoOn ? 'enabled' : 'disabled'}`);
-        }
-    }
-
-    // Toggle audio stream
-    function toggleAudio() {
-        if (!localStream) return;
-        
-        const audioTrack = localStream.getAudioTracks()[0];
-        if (audioTrack) {
-            audioTrack.enabled = !audioTrack.enabled;
-            isAudioOn = audioTrack.enabled;
-            
-            toggleAudioBtn.innerHTML = isAudioOn ? 
-                '<i class="fas fa-microphone"></i> Audio On' : 
-                '<i class="fas fa-microphone-slash"></i> Audio Off';
-            
-            toggleAudioBtn.classList.toggle('active', isAudioOn);
-            
-            showToast(`Audio ${isAudioOn ? 'enabled' : 'muted'}`);
-        }
-    }
-
-    // Share screen
-    async function shareScreen() {
-        try {
-            if (!isScreenSharing) {
-                const screenStream = await navigator.mediaDevices.getDisplayMedia({
-                    video: true
+        // Get local media stream
+        async function getLocalStream() {
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: 1280, height: 720 },
+                    audio: true
                 });
                 
-                const videoTrack = screenStream.getVideoTracks()[0];
+                localVideo.srcObject = localStream;
+                console.log('✅ Camera and microphone access granted');
+            } catch (error) {
+                console.error('Error accessing media devices:', error);
+                throw error;
+            }
+        }
+
+        // Create a new room
+        async function createRoom() {
+            try {
+                roomId = roomIdInput.value.trim() || generateRoomId();
+                console.log('Creating room:', roomId);
+                
+                // Connect to signaling server
+                await connectSignalingServer();
+                
+                // Send create room message
+                sendSignalingMessage({
+                    type: 'create-room',
+                    roomId: roomId
+                });
+                
+            } catch (error) {
+                console.error('Error creating room:', error);
+                showToast('Error creating room: ' + error.message, true);
+            }
+        }
+
+        // Join an existing room
+        async function joinRoom() {
+            try {
+                roomId = roomIdInput.value.trim();
+                
+                if (!roomId) {
+                    showToast('Please enter a room ID', true);
+                    return;
+                }
+                
+                console.log('Joining room:', roomId);
+                
+                // Connect to signaling server
+                await connectSignalingServer();
+                
+                // Send join room message
+                sendSignalingMessage({
+                    type: 'join-room',
+                    roomId: roomId
+                });
+                
+            } catch (error) {
+                console.error('Error joining room:', error);
+                showToast('Error joining room: ' + error.message, true);
+            }
+        }
+
+        // Handle room created response
+        function handleRoomCreated(message) {
+            console.log('✅ Room created successfully');
+            showCallInterface();
+            currentRoomId.textContent = roomId;
+            showToast(`Room "${roomId}" created. Share the ID with your friend.`);
+            updateConnectionStatus('Waiting for participants...', 'warning');
+            
+            // Initialize peer connection for when others join
+            initializePeerConnection();
+        }
+
+        // Handle room joined response
+        function handleRoomJoined(message) {
+            console.log('✅ Joined room successfully');
+            showCallInterface();
+            currentRoomId.textContent = roomId;
+            showToast(`Joined room "${roomId}"`);
+            updateConnectionStatus('Connected to room', 'success');
+            
+            // Initialize peer connection
+            initializePeerConnection();
+            
+            // If there are other participants, create an offer
+            if (message.participants && message.participants.length > 1) {
+                createOffer();
+            }
+        }
+
+        // Handle user joined room
+        function handleUserJoined(message) {
+            console.log('👤 New participant joined');
+            showToast('New participant joined the room');
+            updateConnectionStatus('Participant joined, establishing connection...', 'warning');
+            
+            // Create offer to establish connection
+            if (peerConnection) {
+                createOffer();
+            }
+        }
+
+        // Handle user left room
+        function handleUserLeft(message) {
+            console.log('👤 Participant left');
+            showToast('Participant left the room');
+            
+            if (peerConnection) {
+                peerConnection.close();
+                peerConnection = null;
+            }
+            
+            remoteVideo.srcObject = null;
+            remoteVideoIndicator.classList.remove('active');
+            remoteStatusText.textContent = 'Disconnected';
+            updateConnectionStatus('Participant disconnected', 'error');
+            
+            // Reinitialize for new connections
+            initializePeerConnection();
+        }
+
+        // Show call interface
+        function showCallInterface() {
+            setupInterface.classList.add('hidden');
+            callInterface.classList.remove('hidden');
+        }
+
+        // Initialize WebRTC peer connection
+        async function initializePeerConnection() {
+            try {
+                if (peerConnection) {
+                    peerConnection.close();
+                }
+                
+                peerConnection = new RTCPeerConnection(configuration);
+                console.log('✅ Peer connection initialized');
+                
+                // Add local stream tracks
+                localStream.getTracks().forEach(track => {
+                    peerConnection.addTrack(track, localStream);
+                });
+                
+                // Set up event handlers
+                peerConnection.onicecandidate = (event) => {
+                    if (event.candidate) {
+                        sendSignalingMessage({
+                            type: 'ice-candidate',
+                            candidate: event.candidate,
+                            roomId: roomId
+                        });
+                    }
+                };
+                
+                peerConnection.ontrack = (event) => {
+                    console.log('✅ Remote stream received');
+                    remoteVideo.srcObject = event.streams[0];
+                    remoteVideoIndicator.classList.add('active');
+                    remoteStatusText.textContent = 'Live';
+                    updateConnectionStatus('Connected to peer', 'success');
+                    showToast('Connected to remote participant');
+                };
+                
+                peerConnection.onconnectionstatechange = () => {
+                    console.log('Connection state:', peerConnection.connectionState);
+                };
+                
+            } catch (error) {
+                console.error('Error initializing peer connection:', error);
+            }
+        }
+
+        // Create WebRTC offer
+        async function createOffer() {
+            try {
+                console.log('📤 Creating WebRTC offer');
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+                
+                sendSignalingMessage({
+                    type: 'offer',
+                    offer: offer,
+                    roomId: roomId
+                });
+            } catch (error) {
+                console.error('Error creating offer:', error);
+            }
+        }
+
+        // Handle incoming offer
+        async function handleOffer(message) {
+            try {
+                console.log('📥 Handling WebRTC offer');
+                if (!peerConnection) {
+                    await initializePeerConnection();
+                }
+                
+                await peerConnection.setRemoteDescription(message.offer);
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
+                
+                sendSignalingMessage({
+                    type: 'answer',
+                    answer: answer,
+                    roomId: roomId
+                });
+            } catch (error) {
+                console.error('Error handling offer:', error);
+            }
+        }
+
+        // Handle incoming answer
+        async function handleAnswer(message) {
+            try {
+                console.log('📥 Handling WebRTC answer');
+                await peerConnection.setRemoteDescription(message.answer);
+            } catch (error) {
+                console.error('Error handling answer:', error);
+            }
+        }
+
+        // Handle incoming ICE candidate
+        async function handleIceCandidate(message) {
+            try {
+                if (peerConnection) {
+                    await peerConnection.addIceCandidate(message.candidate);
+                }
+            } catch (error) {
+                console.error('Error adding ICE candidate:', error);
+            }
+        }
+
+        // Toggle video stream
+        function toggleVideo() {
+            if (!localStream) return;
+            
+            const videoTrack = localStream.getVideoTracks()[0];
+            if (videoTrack) {
+                videoTrack.enabled = !videoTrack.enabled;
+                isVideoOn = videoTrack.enabled;
+                
+                toggleVideoBtn.innerHTML = isVideoOn ? 
+                    '<i class="fas fa-video"></i> Video On' : 
+                    '<i class="fas fa-video-slash"></i> Video Off';
+                
+                toggleVideoBtn.classList.toggle('active', isVideoOn);
+                localVideoIndicator.classList.toggle('active', isVideoOn);
+                
+                showToast(`Video ${isVideoOn ? 'enabled' : 'disabled'}`);
+            }
+        }
+
+        // Toggle audio stream
+        function toggleAudio() {
+            if (!localStream) return;
+            
+            const audioTrack = localStream.getAudioTracks()[0];
+            if (audioTrack) {
+                audioTrack.enabled = !audioTrack.enabled;
+                isAudioOn = audioTrack.enabled;
+                
+                toggleAudioBtn.innerHTML = isAudioOn ? 
+                    '<i class="fas fa-microphone"></i> Audio On' : 
+                    '<i class="fas fa-microphone-slash"></i> Audio Off';
+                
+                toggleAudioBtn.classList.toggle('active', isAudioOn);
+                
+                showToast(`Audio ${isAudioOn ? 'enabled' : 'muted'}`);
+            }
+        }
+
+        // Share screen
+        async function shareScreen() {
+            try {
+                if (!isScreenSharing) {
+                    const screenStream = await navigator.mediaDevices.getDisplayMedia({
+                        video: true
+                    });
+                    
+                    const videoTrack = screenStream.getVideoTracks()[0];
+                    const sender = peerConnection.getSenders().find(s => 
+                        s.track && s.track.kind === 'video'
+                    );
+                    
+                    if (sender) {
+                        await sender.replaceTrack(videoTrack);
+                    }
+                    
+                    screenShareBtn.innerHTML = '<i class="fas fa-stop"></i> Stop Sharing';
+                    screenShareBtn.classList.add('active');
+                    isScreenSharing = true;
+                    
+                    videoTrack.onended = () => {
+                        stopScreenShare();
+                    };
+                    
+                    showToast('Screen sharing started');
+                } else {
+                    stopScreenShare();
+                }
+            } catch (error) {
+                console.error('Error sharing screen:', error);
+            }
+        }
+
+        // Stop screen sharing
+        async function stopScreenShare() {
+            try {
+                const originalVideoTrack = localStream.getVideoTracks()[0];
                 const sender = peerConnection.getSenders().find(s => 
                     s.track && s.track.kind === 'video'
                 );
                 
-                if (sender) {
-                    await sender.replaceTrack(videoTrack);
+                if (sender && originalVideoTrack) {
+                    await sender.replaceTrack(originalVideoTrack);
                 }
                 
-                screenShareBtn.innerHTML = '<i class="fas fa-stop"></i> Stop Sharing';
-                screenShareBtn.classList.add('active');
-                isScreenSharing = true;
+                screenShareBtn.innerHTML = '<i class="fas fa-desktop"></i> Share Screen';
+                screenShareBtn.classList.remove('active');
+                isScreenSharing = false;
                 
-                videoTrack.onended = () => {
-                    stopScreenShare();
-                };
-                
-                showToast('Screen sharing started');
-            } else {
-                stopScreenShare();
+                showToast('Screen sharing stopped');
+            } catch (error) {
+                console.error('Error stopping screen share:', error);
             }
-        } catch (error) {
-            console.error('Error sharing screen:', error);
         }
-    }
 
-    // Stop screen sharing
-    async function stopScreenShare() {
-        try {
-            const originalVideoTrack = localStream.getVideoTracks()[0];
-            const sender = peerConnection.getSenders().find(s => 
-                s.track && s.track.kind === 'video'
-            );
-            
-            if (sender && originalVideoTrack) {
-                await sender.replaceTrack(originalVideoTrack);
-            }
-            
-            screenShareBtn.innerHTML = '<i class="fas fa-desktop"></i> Share Screen';
-            screenShareBtn.classList.remove('active');
-            isScreenSharing = false;
-            
-            showToast('Screen sharing stopped');
-        } catch (error) {
-            console.error('Error stopping screen share:', error);
-        }
-    }
-
-    // Copy room ID to clipboard
-    function copyRoomId() {
-        navigator.clipboard.writeText(roomId).then(() => {
-            showToast('Room ID copied to clipboard!');
-        }).catch(err => {
-            showToast('Failed to copy room ID', true);
-        });
-    }
-
-    // End the call
-    function endCall() {
-        console.log('📞 Ending call');
-        
-        if (socket && roomId) {
-            sendSignalingMessage({
-                type: 'leave-room',
-                roomId: roomId
+        // Copy room ID to clipboard
+        function copyRoomId() {
+            navigator.clipboard.writeText(roomId).then(() => {
+                showToast('Room ID copied to clipboard!');
+            }).catch(err => {
+                showToast('Failed to copy room ID', true);
             });
         }
-        
-        if (peerConnection) {
-            peerConnection.close();
-            peerConnection = null;
+
+        // End the call
+        function endCall() {
+            console.log('📞 Ending call');
+            
+            if (socket && roomId) {
+                sendSignalingMessage({
+                    type: 'leave-room',
+                    roomId: roomId
+                });
+            }
+            
+            if (peerConnection) {
+                peerConnection.close();
+                peerConnection = null;
+            }
+            
+            if (isScreenSharing) {
+                stopScreenShare();
+            }
+            
+            setupInterface.classList.remove('hidden');
+            callInterface.classList.add('hidden');
+            
+            // Reset UI
+            toggleVideoBtn.innerHTML = '<i class="fas fa-video"></i> Video On';
+            toggleVideoBtn.classList.add('active');
+            toggleAudioBtn.innerHTML = '<i class="fas fa-microphone"></i> Audio On';
+            toggleAudioBtn.classList.add('active');
+            screenShareBtn.innerHTML = '<i class="fas fa-desktop"></i> Share Screen';
+            screenShareBtn.classList.remove('active');
+            
+            localVideoIndicator.classList.add('active');
+            remoteVideoIndicator.classList.remove('active');
+            remoteStatusText.textContent = 'Connecting...';
+            
+            updateConnectionStatus('Call ended', 'error');
+            roomId = null;
+            
+            showToast('Call ended');
         }
-        
-        if (isScreenSharing) {
-            stopScreenShare();
+
+        // Update connection status
+        function updateConnectionStatus(message, type) {
+            connectionStatusText.textContent = message;
+            connectionStatusDot.className = 'status-dot';
+            
+            switch (type) {
+                case 'success':
+                    connectionStatusDot.classList.add('connected');
+                    break;
+                case 'warning':
+                    connectionStatusDot.style.background = '#ffc107';
+                    break;
+                case 'error':
+                    connectionStatusDot.style.background = '#dc3545';
+                    break;
+            }
         }
-        
-        setupInterface.classList.remove('hidden');
-        callInterface.classList.add('hidden');
-        
-        // Reset UI
-        toggleVideoBtn.innerHTML = '<i class="fas fa-video"></i> Video On';
-        toggleVideoBtn.classList.add('active');
-        toggleAudioBtn.innerHTML = '<i class="fas fa-microphone"></i> Audio On';
-        toggleAudioBtn.classList.add('active');
-        screenShareBtn.innerHTML = '<i class="fas fa-desktop"></i> Share Screen';
-        screenShareBtn.classList.remove('active');
-        
-        localVideoIndicator.classList.add('active');
-        remoteVideoIndicator.classList.remove('active');
-        remoteStatusText.textContent = 'Connecting...';
-        
-        updateConnectionStatus('Call ended', 'error');
-        roomId = null;
-        
-        showToast('Call ended');
-    }
 
-    // Update connection status
-    function updateConnectionStatus(message, type) {
-        connectionStatusText.textContent = message;
-        connectionStatusDot.className = 'status-dot';
-        
-        switch (type) {
-            case 'success':
-                connectionStatusDot.classList.add('connected');
-                break;
-            case 'warning':
-                connectionStatusDot.style.background = '#ffc107';
-                break;
-            case 'error':
-                connectionStatusDot.style.background = '#dc3545';
-                break;
+        // Generate a random room ID
+        function generateRoomId() {
+            return Math.random().toString(36).substring(2, 8).toUpperCase();
         }
-    }
 
-    // Generate a random room ID
-    function generateRoomId() {
-        return Math.random().toString(36).substring(2, 8).toUpperCase();
-    }
-
-    // Show toast notification
-    function showToast(message, isError = false) {
-        toastMessage.textContent = message;
-        
-        if (isError) {
-            toast.style.background = '#dc3545';
-            toast.querySelector('i').className = 'fas fa-exclamation-circle';
-        } else {
-            toast.style.background = '';
-            toast.querySelector('i').className = 'fas fa-check-circle';
+        // Show toast notification
+        function showToast(message, isError = false) {
+            toastMessage.textContent = message;
+            
+            if (isError) {
+                toast.style.background = '#dc3545';
+                toast.querySelector('i').className = 'fas fa-exclamation-circle';
+            } else {
+                toast.style.background = '';
+                toast.querySelector('i').className = 'fas fa-check-circle';
+            }
+            
+            toast.classList.add('show');
+            
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3000);
         }
-        
-        toast.classList.add('show');
-        
-        setTimeout(() => {
-            toast.classList.remove('show');
-        }, 3000);
-    }
 
-    // Set up event listeners
-    function setupEventListeners() {
-        createRoomBtn.addEventListener('click', createRoom);
-        joinRoomBtn.addEventListener('click', joinRoom);
-        toggleVideoBtn.addEventListener('click', toggleVideo);
-        toggleAudioBtn.addEventListener('click', toggleAudio);
-        screenShareBtn.addEventListener('click', shareScreen);
-        endCallBtn.addEventListener('click', endCall);
-        copyRoomIdBtn.addEventListener('click', copyRoomId);
-    }
+        // Set up event listeners
+        function setupEventListeners() {
+            createRoomBtn.addEventListener('click', createRoom);
+            joinRoomBtn.addEventListener('click', joinRoom);
+            toggleVideoBtn.addEventListener('click', toggleVideo);
+            toggleAudioBtn.addEventListener('click', toggleAudio);
+            screenShareBtn.addEventListener('click', shareScreen);
+            endCallBtn.addEventListener('click', endCall);
+            copyRoomIdBtn.addEventListener('click', copyRoomId);
+        }
 
-    // Initialize the app
-    window.addEventListener('load', init);
-</script>
+        // Initialize the app
+        window.addEventListener('load', init);
+    </script>
 </body>
 </html>
