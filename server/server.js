@@ -41,8 +41,7 @@ const server = http.createServer((req, res) => {
 
 // WebSocket server
 const wss = new WebSocket.Server({ 
-    server,
-    perMessageDeflate: false
+    noServer: true
 });
 
 // Simple room storage
@@ -181,6 +180,18 @@ function broadcastToRoom(roomId, sender, message) {
         }
     });
 }
+
+
+server.on('upgrade', (request, socket, head) => {
+  if (request.url === '/ws') {
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      wss.emit('connection', ws, request);
+    });
+  } else {
+    socket.destroy();
+  }
+});
+
 
 // Error handling
 server.on('error', (error) => {
