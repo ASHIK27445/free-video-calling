@@ -6,6 +6,7 @@
     <title>FreeVideoCall - Simple P2P Video Calling</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
+        /* Your existing CSS remains the same */
         * {
             margin: 0;
             padding: 0;
@@ -578,14 +579,14 @@
             ]
         };
 
-        // Get backend URL based on environment
+        // ✅ FIXED: Get backend URL based on environment
         function getBackendUrl() {
-            // For production, use the Railway/Heroku backend URL
+            // For production, use the Railway backend URL
             // For development, use localhost
             if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
                 return 'ws://localhost:8080';
             } else {
-                // Replace with your actual backend URL
+                // ✅ Use your actual Railway backend URL with wss:// protocol
                 return 'wss://free-video-calling-production.up.railway.app';
             }
         }
@@ -610,32 +611,36 @@
         function connectSignalingServer() {
             return new Promise((resolve, reject) => {
                 const serverUrl = getBackendUrl();
+                console.log('🔗 Connecting to:', serverUrl); // Debug log
                 
                 socket = new WebSocket(serverUrl);
                 
                 socket.onopen = () => {
-                    console.log('Connected to signaling server');
+                    console.log('✅ Connected to signaling server');
                     updateConnectionStatus('Connected to server', 'success');
                     resolve();
                 };
                 
                 socket.onerror = (error) => {
-                    console.error('WebSocket error:', error);
+                    console.error('❌ WebSocket error:', error);
+                    showToast('Failed to connect to server. Check backend URL.', true);
                     reject(new Error('Failed to connect to signaling server'));
                 };
                 
                 socket.onmessage = (event) => {
                     const message = JSON.parse(event.data);
+                    console.log('📨 Received message:', message.type); // Debug log
                     handleSignalingMessage(message);
                 };
                 
                 socket.onclose = () => {
-                    console.log('Disconnected from signaling server');
+                    console.log('🔌 Disconnected from signaling server');
                     updateConnectionStatus('Disconnected from server', 'error');
                     
                     // Try to reconnect after 3 seconds
                     setTimeout(() => {
                         if (roomId) {
+                            console.log('🔄 Attempting to reconnect...');
                             connectSignalingServer().then(() => {
                                 // Rejoin room if we were in one
                                 socket.send(JSON.stringify({
@@ -651,11 +656,11 @@
 
         // Handle signaling messages from server
         function handleSignalingMessage(message) {
-            console.log('Received message:', message);
+            console.log('📩 Received message:', message);
             
             switch (message.type) {
                 case 'connected':
-                    console.log('Connected with client ID:', message.clientId);
+                    console.log('✅ Connected with client ID:', message.clientId);
                     break;
                 case 'room-created':
                     handleRoomCreated(message);
@@ -690,9 +695,10 @@
         // Send signaling message to server
         function sendSignalingMessage(message) {
             if (socket && socket.readyState === WebSocket.OPEN) {
+                console.log('📤 Sending message:', message.type); // Debug log
                 socket.send(JSON.stringify(message));
             } else {
-                console.error('WebSocket is not connected');
+                console.error('❌ WebSocket is not connected');
                 showToast('Connection lost. Trying to reconnect...', true);
                 connectSignalingServer();
             }
@@ -711,8 +717,9 @@
                 });
                 
                 localVideo.srcObject = localStream;
+                console.log('✅ Camera and microphone access granted');
             } catch (error) {
-                console.error('Error accessing media devices:', error);
+                console.error('❌ Error accessing media devices:', error);
                 throw error;
             }
         }
@@ -721,9 +728,11 @@
         async function createRoom() {
             try {
                 roomId = roomIdInput.value.trim() || generateRoomId();
+                console.log('🚀 Creating room:', roomId);
                 
                 // Connect to signaling server if not already connected
                 if (!socket || socket.readyState !== WebSocket.OPEN) {
+                    console.log('🔗 Establishing connection to server...');
                     await connectSignalingServer();
                 }
                 
@@ -734,7 +743,7 @@
                 });
                 
             } catch (error) {
-                console.error('Error creating room:', error);
+                console.error('❌ Error creating room:', error);
                 showToast('Error creating room: ' + error.message, true);
             }
         }
@@ -749,8 +758,11 @@
                     return;
                 }
                 
+                console.log('🚀 Joining room:', roomId);
+                
                 // Connect to signaling server if not already connected
                 if (!socket || socket.readyState !== WebSocket.OPEN) {
+                    console.log('🔗 Establishing connection to server...');
                     await connectSignalingServer();
                 }
                 
@@ -761,13 +773,14 @@
                 });
                 
             } catch (error) {
-                console.error('Error joining room:', error);
+                console.error('❌ Error joining room:', error);
                 showToast('Error joining room: ' + error.message, true);
             }
         }
 
         // Handle room created response
         function handleRoomCreated(message) {
+            console.log('✅ Room created successfully');
             showCallInterface();
             currentRoomId.textContent = roomId;
             showToast(`Room "${roomId}" created. Share the ID with your friend.`);
@@ -777,6 +790,7 @@
 
         // Handle room joined response
         function handleRoomJoined(message) {
+            console.log('✅ Joined room successfully');
             showCallInterface();
             currentRoomId.textContent = roomId;
             showToast(`Joined room "${roomId}"`);
@@ -795,6 +809,7 @@
 
         // Handle user joined room
         function handleUserJoined(message) {
+            console.log('👤 New participant joined');
             showToast('New participant joined the room');
             updateConnectionStatus('Participant joined, establishing connection...', 'warning');
             
@@ -806,6 +821,7 @@
 
         // Handle user left room
         function handleUserLeft(message) {
+            console.log('👤 Participant left');
             showToast('Participant left the room');
             
             if (peerConnection) {
@@ -827,6 +843,7 @@
         function showCallInterface() {
             setupInterface.classList.add('hidden');
             callInterface.classList.remove('hidden');
+            console.log('🖥️ Call interface shown');
         }
 
         // Initialize WebRTC peer connection
@@ -837,6 +854,7 @@
                 }
                 
                 peerConnection = new RTCPeerConnection(configuration);
+                console.log('✅ Peer connection initialized');
                 
                 // Add local stream tracks
                 localStream.getTracks().forEach(track => {
@@ -855,6 +873,7 @@
                 };
                 
                 peerConnection.ontrack = (event) => {
+                    console.log('✅ Remote stream received');
                     remoteVideo.srcObject = event.streams[0];
                     remoteVideoIndicator.classList.add('active');
                     remoteStatusText.textContent = 'Live';
@@ -863,7 +882,7 @@
                 };
                 
                 peerConnection.onconnectionstatechange = () => {
-                    console.log('Connection state:', peerConnection.connectionState);
+                    console.log('🔗 Connection state:', peerConnection.connectionState);
                     
                     switch (peerConnection.connectionState) {
                         case 'connected':
@@ -888,7 +907,7 @@
                 };
                 
             } catch (error) {
-                console.error('Error initializing peer connection:', error);
+                console.error('❌ Error initializing peer connection:', error);
                 throw error;
             }
         }
@@ -896,6 +915,7 @@
         // Create WebRTC offer
         async function createOffer() {
             try {
+                console.log('📤 Creating WebRTC offer');
                 const offer = await peerConnection.createOffer();
                 await peerConnection.setLocalDescription(offer);
                 
@@ -905,13 +925,14 @@
                     roomId: roomId
                 });
             } catch (error) {
-                console.error('Error creating offer:', error);
+                console.error('❌ Error creating offer:', error);
             }
         }
 
         // Handle incoming offer
         async function handleOffer(message) {
             try {
+                console.log('📥 Handling WebRTC offer');
                 if (!peerConnection) {
                     await initializePeerConnection();
                 }
@@ -926,16 +947,17 @@
                     roomId: roomId
                 });
             } catch (error) {
-                console.error('Error handling offer:', error);
+                console.error('❌ Error handling offer:', error);
             }
         }
 
         // Handle incoming answer
         async function handleAnswer(message) {
             try {
+                console.log('📥 Handling WebRTC answer');
                 await peerConnection.setRemoteDescription(message.answer);
             } catch (error) {
-                console.error('Error handling answer:', error);
+                console.error('❌ Error handling answer:', error);
             }
         }
 
@@ -946,7 +968,7 @@
                     await peerConnection.addIceCandidate(message.candidate);
                 }
             } catch (error) {
-                console.error('Error adding ICE candidate:', error);
+                console.error('❌ Error adding ICE candidate:', error);
             }
         }
 
@@ -1080,6 +1102,7 @@
 
         // End the call
         function endCall() {
+            console.log('📞 Ending call');
             // Send leave room message
             if (socket && roomId) {
                 sendSignalingMessage({
