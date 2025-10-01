@@ -1,12 +1,10 @@
-
 [build]
-  publish = "public"
-  command = "echo 'No build needed'"
+builder = "nixpacks"
 
-[[redirects]]
-  from = "/*"
-  to = "/index.html"
-  status = 200
+[deploy]
+startCommand = "node server.js"
+restartPolicyType = "on_failure"
 
-[build.environment]
-  NODE_VERSION = "18"
+[[services]]
+name = "web"
+httpPort = 8080

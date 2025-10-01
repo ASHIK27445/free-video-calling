@@ -1,11 +1,10 @@
 {
   "name": "video-call-backend",
   "version": "1.0.0",
-  "description": "WebSocket signaling server for video calling app",
+  "description": "WebSocket signaling server",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js"
+    "start": "node server.js"
   },
   "dependencies": {
     "ws": "^8.13.0"
