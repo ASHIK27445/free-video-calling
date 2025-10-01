@@ -10,9 +10,6 @@
   "dependencies": {
     "ws": "^8.13.0"
   },
-  "devDependencies": {
-    "nodemon": "^2.0.22"
-  },
   "engines": {
     "node": ">=16.0.0"
   }

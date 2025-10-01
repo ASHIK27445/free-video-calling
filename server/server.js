@@ -1,12 +1,31 @@
 const WebSocket = require('ws');
 const http = require('http');
-const url = require('url');
 
 // Create HTTP server
-const server = http.createServer();
+const server = http.createServer((req, res) => {
+    // Health check endpoint
+    if (req.url === '/health' && req.method === 'GET') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ 
+            status: 'ok', 
+            rooms: rooms.size,
+            connections: wss.clients.size,
+            timestamp: new Date().toISOString()
+        }));
+        return;
+    }
+    
+    // Default response for other routes
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ 
+        message: 'Video Call Signaling Server',
+        endpoints: ['/health', 'ws:// for WebSocket connections']
+    }));
+});
+
+// Create WebSocket server
 const wss = new WebSocket.Server({ 
     server,
-    // Enable CORS for all origins (for development)
     perMessageDeflate: false
 });
 
@@ -15,12 +34,17 @@ const rooms = new Map();
 
 // Handle WebSocket connections
 wss.on('connection', (ws, req) => {
-    const parameters = url.parse(req.url, true);
     const clientId = generateId();
-    
     console.log(`Client connected: ${clientId}`);
-    ws.id = clientId;
     
+    ws.id = clientId;
+    ws.isAlive = true;
+
+    // Heartbeat to check if connection is alive
+    ws.on('pong', () => {
+        ws.isAlive = true;
+    });
+
     // Handle messages from client
     ws.on('message', (data) => {
         try {
@@ -34,24 +58,37 @@ wss.on('connection', (ws, req) => {
             });
         }
     });
-    
+
     // Handle client disconnection
     ws.on('close', () => {
         console.log(`Client disconnected: ${clientId}`);
         handleClientDisconnection(ws);
     });
-    
+
     // Handle errors
     ws.on('error', (error) => {
         console.error(`WebSocket error for client ${clientId}:`, error);
     });
-    
+
     // Send connection confirmation
     sendToClient(ws, {
         type: 'connected',
         clientId: clientId
     });
 });
+
+// Heartbeat interval (check every 30 seconds)
+setInterval(() => {
+    wss.clients.forEach((ws) => {
+        if (!ws.isAlive) {
+            console.log('Terminating dead connection:', ws.id);
+            return ws.terminate();
+        }
+        
+        ws.isAlive = false;
+        ws.ping(null, false, true);
+    });
+}, 30000);
 
 // Handle client messages
 function handleClientMessage(ws, message) {
@@ -76,14 +113,30 @@ function handleClientMessage(ws, message) {
         case 'ice-candidate':
             handleIceCandidate(ws, message);
             break;
+        case 'ping':
+            // Respond to ping
+            sendToClient(ws, { type: 'pong' });
+            break;
         default:
             console.log('Unknown message type:', message.type);
+            sendToClient(ws, {
+                type: 'error',
+                message: `Unknown message type: ${message.type}`
+            });
     }
 }
 
 // Handle room creation
 function handleCreateRoom(ws, message) {
     const { roomId } = message;
+    
+    if (!roomId) {
+        sendToClient(ws, {
+            type: 'error',
+            message: 'Room ID is required'
+        });
+        return;
+    }
     
     if (rooms.has(roomId)) {
         sendToClient(ws, {
@@ -95,8 +148,8 @@ function handleCreateRoom(ws, message) {
     
     // Create new room
     rooms.set(roomId, {
-        participants: new Set([ws.id]),
-        creator: ws.id
+        participants: new Map([[ws.id, ws]]),
+        createdAt: new Date()
     });
     
     // Add room to client
@@ -105,7 +158,7 @@ function handleCreateRoom(ws, message) {
     sendToClient(ws, {
         type: 'room-created',
         roomId: roomId,
-        participants: Array.from(rooms.get(roomId).participants)
+        participants: Array.from(rooms.get(roomId).participants.keys())
     });
     
     console.log(`Room created: ${roomId} by ${ws.id}`);
@@ -114,6 +167,14 @@ function handleCreateRoom(ws, message) {
 // Handle room joining
 function handleJoinRoom(ws, message) {
     const { roomId } = message;
+    
+    if (!roomId) {
+        sendToClient(ws, {
+            type: 'error',
+            message: 'Room ID is required'
+        });
+        return;
+    }
     
     if (!rooms.has(roomId)) {
         sendToClient(ws, {
@@ -126,21 +187,22 @@ function handleJoinRoom(ws, message) {
     const room = rooms.get(roomId);
     
     // Add client to room
-    room.participants.add(ws.id);
+    room.participants.set(ws.id, ws);
     ws.roomId = roomId;
     
     // Notify the joining client
     sendToClient(ws, {
         type: 'room-joined',
         roomId: roomId,
-        participants: Array.from(room.participants)
+        participants: Array.from(room.participants.keys())
     });
     
     // Notify other participants in the room
     broadcastToRoom(roomId, ws, {
         type: 'user-joined',
         userId: ws.id,
-        participants: Array.from(room.participants)
+        roomId: roomId,
+        participants: Array.from(room.participants.keys())
     });
     
     console.log(`User ${ws.id} joined room: ${roomId}`);
@@ -148,9 +210,9 @@ function handleJoinRoom(ws, message) {
 
 // Handle room leaving
 function handleLeaveRoom(ws, message) {
-    const { roomId } = message;
+    const roomId = message.roomId || ws.roomId;
     
-    if (!rooms.has(roomId)) {
+    if (!roomId || !rooms.has(roomId)) {
         return;
     }
     
@@ -161,7 +223,8 @@ function handleLeaveRoom(ws, message) {
     broadcastToRoom(roomId, ws, {
         type: 'user-left',
         userId: ws.id,
-        participants: Array.from(room.participants)
+        roomId: roomId,
+        participants: Array.from(room.participants.keys())
     });
     
     // Clean up room if empty
@@ -178,7 +241,11 @@ function handleLeaveRoom(ws, message) {
 function handleOffer(ws, message) {
     const { roomId, offer } = message;
     
-    if (!rooms.has(roomId)) {
+    if (!roomId || !rooms.has(roomId)) {
+        sendToClient(ws, {
+            type: 'error',
+            message: 'Room not found'
+        });
         return;
     }
     
@@ -186,7 +253,8 @@ function handleOffer(ws, message) {
     broadcastToRoom(roomId, ws, {
         type: 'offer',
         offer: offer,
-        from: ws.id
+        from: ws.id,
+        roomId: roomId
     });
 }
 
@@ -194,7 +262,11 @@ function handleOffer(ws, message) {
 function handleAnswer(ws, message) {
     const { roomId, answer } = message;
     
-    if (!rooms.has(roomId)) {
+    if (!roomId || !rooms.has(roomId)) {
+        sendToClient(ws, {
+            type: 'error',
+            message: 'Room not found'
+        });
         return;
     }
     
@@ -202,7 +274,8 @@ function handleAnswer(ws, message) {
     broadcastToRoom(roomId, ws, {
         type: 'answer',
         answer: answer,
-        from: ws.id
+        from: ws.id,
+        roomId: roomId
     });
 }
 
@@ -210,7 +283,11 @@ function handleAnswer(ws, message) {
 function handleIceCandidate(ws, message) {
     const { roomId, candidate } = message;
     
-    if (!rooms.has(roomId)) {
+    if (!roomId || !rooms.has(roomId)) {
+        sendToClient(ws, {
+            type: 'error',
+            message: 'Room not found'
+        });
         return;
     }
     
@@ -218,30 +295,15 @@ function handleIceCandidate(ws, message) {
     broadcastToRoom(roomId, ws, {
         type: 'ice-candidate',
         candidate: candidate,
-        from: ws.id
+        from: ws.id,
+        roomId: roomId
     });
 }
 
 // Handle client disconnection
 function handleClientDisconnection(ws) {
     if (ws.roomId) {
-        const room = rooms.get(ws.roomId);
-        if (room) {
-            room.participants.delete(ws.id);
-            
-            // Notify other participants
-            broadcastToRoom(ws.roomId, ws, {
-                type: 'user-left',
-                userId: ws.id,
-                participants: Array.from(room.participants)
-            });
-            
-            // Clean up room if empty
-            if (room.participants.size === 0) {
-                rooms.delete(ws.roomId);
-                console.log(`Room deleted: ${ws.roomId}`);
-            }
-        }
+        handleLeaveRoom(ws, { roomId: ws.roomId });
     }
 }
 
@@ -254,10 +316,8 @@ function broadcastToRoom(roomId, sender, message) {
     const room = rooms.get(roomId);
     let sentCount = 0;
     
-    wss.clients.forEach(client => {
-        if (client !== sender && 
-            client.readyState === WebSocket.OPEN && 
-            room.participants.has(client.id)) {
+    room.participants.forEach((client, clientId) => {
+        if (client !== sender && client.readyState === WebSocket.OPEN) {
             sendToClient(client, message);
             sentCount++;
         }
@@ -269,7 +329,11 @@ function broadcastToRoom(roomId, sender, message) {
 // Send message to a specific client
 function sendToClient(ws, message) {
     if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify(message));
+        try {
+            ws.send(JSON.stringify(message));
+        } catch (error) {
+            console.error('Error sending message to client:', error);
+        }
     }
 }
 
@@ -279,22 +343,27 @@ function generateId() {
            Math.random().toString(36).substring(2, 15);
 }
 
-// Health check endpoint
-server.on('request', (req, res) => {
-    if (req.url === '/health' && req.method === 'GET') {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ 
-            status: 'ok', 
-            rooms: rooms.size,
-            connections: wss.clients.size 
-        }));
-        return;
-    }
+// Handle graceful shutdown
+process.on('SIGTERM', () => {
+    console.log('Received SIGTERM, shutting down gracefully');
+    server.close(() => {
+        console.log('Server closed');
+        process.exit(0);
+    });
+});
+
+process.on('SIGINT', () => {
+    console.log('Received SIGINT, shutting down gracefully');
+    server.close(() => {
+        console.log('Server closed');
+        process.exit(0);
+    });
 });
 
 // Start server
 const PORT = process.env.PORT || 8080;
-server.listen(PORT, () => {
-    console.log(`Signaling server running on port ${PORT}`);
-    console.log(`Health check available at http://localhost:${PORT}/health`);
+server.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 Signaling server running on port ${PORT}`);
+    console.log(`📍 Health check: http://0.0.0.0:${PORT}/health`);
+    console.log(`🔗 WebSocket endpoint: ws://0.0.0.0:${PORT}`);
 });
